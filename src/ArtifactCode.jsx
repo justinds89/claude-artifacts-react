@@ -5,8 +5,115 @@ import { Input } from '@/components/ui/input';
 import { Trophy, Plus, Trash2, Upload, Play, Filter, Settings } from 'lucide-react';
 import Papa from 'papaparse';
 
+function Confetti({ active }) {
+  const canvasRef = useRef(null);
+  const requestRef = useRef();
+  const particlesRef = useRef([]);
+  const [dimensions, setDimensions] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+  }, [dimensions]);
+
+  useEffect(() => {
+    if (!active || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const colors = ['#ffd700', '#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#ffffff'];
+
+    particlesRef.current = [];
+    const particlesPerBurst = 150;
+    const burstPoints = [
+      { x: dimensions.width * 0.3, y: dimensions.height * 0.4 },
+      { x: dimensions.width * 0.7, y: dimensions.height * 0.4 },
+      { x: dimensions.width * 0.5, y: dimensions.height * 0.3 }
+    ];
+
+    burstPoints.forEach(point => {
+      for (let i = 0; i < particlesPerBurst; i++) {
+        const angle = (Math.PI * 2 * i) / particlesPerBurst;
+        const velocity = 8 + Math.random() * 4;
+        particlesRef.current.push({
+          x: point.x,
+          y: point.y,
+          size: Math.random() * 8 + 4,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          speedX: Math.cos(angle) * velocity * (Math.random() + 0.5),
+          speedY: Math.sin(angle) * velocity * (Math.random() + 0.5),
+          gravity: 0.15,
+          rotation: Math.random() * 360,
+          rotationSpeed: (Math.random() - 0.5) * 2,
+          opacity: 1
+        });
+      }
+    });
+
+    const animate = () => {
+      if (!canvasRef.current) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      particlesRef.current = particlesRef.current.filter(particle => {
+        particle.x += particle.speedX;
+        particle.y += particle.speedY;
+        particle.speedY += particle.gravity;
+        particle.rotation += particle.rotationSpeed;
+        particle.opacity -= 0.005;
+
+        if (particle.opacity <= 0) return false;
+
+        ctx.save();
+        ctx.globalAlpha = particle.opacity;
+        ctx.translate(particle.x, particle.y);
+        ctx.rotate((particle.rotation * Math.PI) / 180);
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(-particle.size / 2, -particle.size / 2, particle.size, particle.size);
+        ctx.restore();
+
+        return particle.opacity > 0;
+      });
+
+      if (particlesRef.current.length > 0) {
+        requestRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    requestRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
+  }, [active, dimensions]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="fixed top-0 left-0 w-full h-full pointer-events-none z-50"
+      style={{ width: '100%', height: '100%' }}
+    />
+  );
+}
+
 function PrizeDraw() {
-  // State definitions
   const [isPresentation, setIsPresentation] = useState(false);
   const [currentNames, setCurrentNames] = useState([]);
   const [csvData, setCsvData] = useState(null);
@@ -22,7 +129,6 @@ function PrizeDraw() {
   const [showMasterResetWarning, setShowMasterResetWarning] = useState(false);
   const [showDeleteDrawingWarning, setShowDeleteDrawingWarning] = useState(null);
 
-  // File handling
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -53,43 +159,6 @@ function PrizeDraw() {
     reader.readAsText(file);
   };
 
-  // Drawing functions
-  const drawWinner = () => {
-    if (!selectedDrawing) return;
-    
-    const currentDrawnNames = drawnNames[selectedDrawing] || [];
-    const availableNames = currentNames.filter(name => !currentDrawnNames.includes(name));
-    
-    if (availableNames.length === 0) {
-      setWinner('All names have been drawn!');
-      return;
-    }
-
-    setIsDrawing(true);
-    setShowConfetti(false);
-    let shuffleCount = 0;
-    const maxShuffles = 20;
-
-    const shuffleInterval = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * availableNames.length);
-      setWinner(availableNames[randomIndex]);
-      shuffleCount++;
-
-      if (shuffleCount >= maxShuffles) {
-        clearInterval(shuffleInterval);
-        setIsDrawing(false);
-        const finalWinner = availableNames[Math.floor(Math.random() * availableNames.length)];
-        setWinner(finalWinner);
-        setDrawnNames({
-          ...drawnNames,
-          [selectedDrawing]: [...currentDrawnNames, finalWinner]
-        });
-        setShowConfetti(true);
-      }
-    }, 100);
-  };
-
-  // Reset functions
   const handleMasterReset = () => {
     setCsvData(null);
     setCsvColumns([]);
@@ -100,7 +169,6 @@ function PrizeDraw() {
     setNewDrawingName('');
     setWinner('');
     setError('');
-    setShowMasterResetWarning(false);
   };
 
   const handleDeleteDrawing = (drawingId) => {
@@ -111,11 +179,28 @@ function PrizeDraw() {
     const newDrawnNames = { ...drawnNames };
     delete newDrawnNames[drawingId];
     setDrawnNames(newDrawnNames);
-    setShowDeleteDrawingWarning(null);
   };
 
-  // Setup Mode UI
-  const setupContent = (
+  if (isPresentation) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-blue-900 to-black text-white p-8">
+        <Confetti active={showConfetti} />
+        
+        <div className="absolute top-4 left-4 flex space-x-4 items-center">
+          <Button
+            variant="outline"
+            onClick={() => setIsPresentation(false)}
+            className="text-gray-300 border-gray-300 hover:text-white hover:border-white"
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Back to Setup
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
     <div className="max-w-6xl mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Prize Drawing Setup</h2>
@@ -141,65 +226,21 @@ function PrizeDraw() {
         <Card className="bg-white shadow-lg">
           <CardContent className="p-6">
             <h2 className="text-2xl font-bold mb-4">Upload Participant Data</h2>
-            <div className="space-y-4">
-              <Input
-                type="file"
-                accept=".csv"
-                onChange={handleFileUpload}
-                className="flex-1"
-              />
-              {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
-              {csvData && (
-                <div className="space-y-4">
-                  <div className="text-sm text-gray-600">
-                    Loaded {csvData.length} records with {csvColumns.length} columns
-                  </div>
-                  <div className="overflow-hidden rounded-lg border border-gray-200">
-                    <div className="bg-gray-100 px-4 py-2">
-                      <span className="font-medium">Data Preview (First 5 Rows)</span>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            {csvColumns.map((column) => (
-                              <th
-                                key={column}
-                                className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                              >
-                                {column}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {csvData.slice(0, 5).map((row, index) => (
-                            <tr key={index}>
-                              {csvColumns.map((column) => (
-                                <td
-                                  key={column}
-                                  className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap"
-                                >
-                                  {row[column]}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <Input
+              type="file"
+              accept=".csv"
+              onChange={handleFileUpload}
+              className="flex-1"
+            />
+            {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
           </CardContent>
         </Card>
 
-        {/* Add Drawing Section */}
+        {/* Create Drawing Section */}
         {csvData && (
           <Card className="bg-white shadow-lg">
-            <CardContent className="py-4 px-6">
-              <div className="flex space-x-4 items-center">
+            <CardContent className="p-6">
+              <div className="flex space-x-4">
                 <Input
                   type="text"
                   value={newDrawingName}
@@ -232,8 +273,8 @@ function PrizeDraw() {
         {/* Drawings List */}
         {drawings.map(drawing => (
           <Card key={drawing.id} className="bg-white shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-4">
+            <CardContent className="p-6 min-h-[100px] flex items-center">
+              <div className="flex justify-between items-center w-full">
                 <h3 className="text-xl font-bold">{drawing.name}</h3>
                 <div className="flex space-x-2">
                   <Button
@@ -244,7 +285,7 @@ function PrizeDraw() {
                     Configure
                   </Button>
                   <Button
-                    onClick={() => setShowDeleteDrawingWarning(drawing.id)}
+                    onClick={() => handleDeleteDrawing(drawing.id)}
                     variant="outline"
                     className="text-red-500 hover:text-red-700"
                   >
@@ -264,222 +305,12 @@ function PrizeDraw() {
                   </Button>
                 </div>
               </div>
-
-              {selectedDrawing === drawing.id && (
-                <div className="mt-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    {csvColumns.map(column => (
-                      <div key={column} className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">
-                          {column}
-                        </label>
-                        <Input
-                          type="text"
-                          placeholder={`Filter by ${column}...`}
-                          value={drawing.filters?.[column] || ''}
-                          onChange={(e) => {
-                            const newFilters = {
-                              ...drawing.filters,
-                              [column]: e.target.value
-                            };
-                            
-                            const nameColumn = csvColumns.find(col => 
-                              col.toLowerCase().includes('name')
-                            ) || csvColumns[0];
-                            
-                            const filteredParticipants = csvData.filter(row => {
-                              return Object.entries(newFilters).every(([col, val]) => {
-                                if (!val) return true;
-                                return row[col]?.toString().toLowerCase().includes(val.toLowerCase());
-                              });
-                            }).map(row => row[nameColumn]).filter(Boolean);
-
-                            setDrawings(drawings.map(d => 
-                              d.id === drawing.id 
-                                ? { ...d, filters: newFilters, participants: filteredParticipants }
-                                : d
-                            ));
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <div className="text-sm text-gray-600">
-                      Filtered participants: {drawing.participants?.length || 0}
-                    </div>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         ))}
       </div>
-
-      {/* Warning Modals */}
-      {showMasterResetWarning && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md mx-4">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">Reset Everything?</h3>
-            <p className="text-gray-600 mb-6">
-              This will delete all drawings, participants, and history. This action cannot be undone.
-            </p>
-            <div className="flex justify-end space-x-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowMasterResetWarning(false)}
-                className="text-gray-600"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleMasterReset}
-                className="bg-red-500 text-white hover:bg-red-600"
-              >
-                Reset Everything
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteDrawingWarning !== null && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md mx-4">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">Delete Drawing?</h3>
-            <p className="text-gray-600 mb-6">
-              This will delete this drawing and all its history. This action cannot be undone.
-            </p>
-            <div className="flex justify-end space-x-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowDeleteDrawingWarning(null)}
-                className="text-gray-600"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => handleDeleteDrawing(showDeleteDrawingWarning)}
-                className="bg-red-500 text-white hover:bg-red-600"
-              >
-                Delete Drawing
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
-
-  // Presentation Mode UI
-  const presentationContent = (
-    <div className="min-h-screen bg-gradient-to-b from-blue-900 to-black text-white p-8">
-      <div className="absolute top-4 left-4 flex space-x-4 items-center">
-        <Button
-          variant="outline"
-          onClick={() => setIsPresentation(false)}
-          className="text-gray-300 border-gray-300 hover:text-white hover:border-white"
-        >
-          <Settings className="w-4 h-4 mr-2" />
-          Back to Setup
-        </Button>
-
-        <Button
-          onClick={() => {
-            const newDrawnNames = { ...drawnNames };
-            delete newDrawnNames[selectedDrawing];
-            setDrawnNames(newDrawnNames);
-            setWinner('');
-            setShowConfetti(false);
-          }}
-          variant="outline"
-          disabled={!drawnNames[selectedDrawing]?.length}
-          className="text-gray-300 border-gray-300 hover:text-white hover:border-white disabled:text-gray-600 disabled:border-gray-600"
-        >
-          Reset Current Draw
-        </Button>
-
-        <select
-          className="bg-transparent text-gray-300 border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-white/50"
-          value={selectedDrawing || ''}
-          onChange={(e) => {
-            const drawingId = parseInt(e.target.value, 10);
-            const drawing = drawings.find(d => d.id === drawingId);
-            if (drawing) {
-              setCurrentNames(drawing.participants);
-              setSelectedDrawing(drawingId);
-              setWinner('');
-              setShowConfetti(false);
-            }
-          }}
-        >
-          <option value="" disabled className="text-gray-900">
-            Select a Drawing
-          </option>
-          {drawings.map(drawing => (
-            <option 
-              key={drawing.id} 
-              value={drawing.id}
-              className="text-gray-900"
-            >
-              {drawing.name} ({drawing.participants.length} participants)
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex flex-col h-screen max-w-4xl mx-auto text-center">
-        <div className="flex-grow flex items-center justify-center pt-20">
-          <div 
-            className={`transform transition-all duration-300 ${
-              isDrawing 
-                ? 'scale-100 opacity-100' 
-                : showConfetti 
-                  ? 'scale-150 opacity-100' 
-                  : 'scale-100 opacity-100'
-            }`}
-          >
-            {isDrawing ? (
-              <div className="space-y-4">
-                <div className="text-3xl font-bold text-white mb-4">
-                  Drawing...
-                </div>
-                <div className="text-7xl font-bold text-white">
-                  {winner}
-                </div>
-              </div>
-            ) : winner && (
-              <>
-                <Trophy className="w-32 h-32 text-yellow-500 mx-auto mb-6" />
-                <h1 className="text-7xl font-bold text-yellow-500 mb-4">
-                  Winner!
-                </h1>
-                <div className="text-5xl font-bold mt-6">{winner}</div>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="pb-24 space-y-8">
-          <div className="flex justify-center">
-            <Button
-              onClick={drawWinner}
-              disabled={isDrawing || !currentNames.length || (drawnNames[selectedDrawing]?.length === currentNames.length)}
-              className="bg-green-500 hover:bg-green-600 text-2xl py-8 px-24 rounded-xl w-96"
-            >
-              Draw Winner
-            </Button>
-          </div>
-
-          <div className="text-xl">
-            Winners drawn: {drawnNames[selectedDrawing]?.length || 0} / {currentNames.length}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  return isPresentation ? presentationContent : setupContent;
 }
 
 export default PrizeDraw;
